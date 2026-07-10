@@ -11,9 +11,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/energy")
-// Zezwalamy na połączenia z każdego źródła w celach deweloperskich (CORS).
-// Dzięki temu React (port 80) bez problemu połączy się z backendem (port 8080).
-@CrossOrigin(origins = "*") 
 public class EnergyController {
 
     private final EnergyService energyService;
@@ -23,9 +20,9 @@ public class EnergyController {
     }
 
     /**
-     * Endpoint zwracający uśredniony miks energetyczny dla 3 dni (dzisiaj, jutro, pojutrze)
+     * Endpoint zwracający uśredniony miks energetyczn dla 3 dni (dzisiaj, jutro, pojutrze)
      * Adres: GET http://localhost:8080/api/energy/daily-mix
-     */
+     */y
     @GetMapping("/daily-mix")
     public ResponseEntity<List<DailyEnergyMix>> getDailyMix() {
         try {
