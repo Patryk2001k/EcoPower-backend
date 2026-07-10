@@ -20,15 +20,16 @@ public class EnergyService {
 
     private final CarbonIntensityClient carbonIntensityClient;
 
-    // Definiujemy, które źródła energii uznajemy za "czyste" zgodnie z zadaniem
+    // Define which fuel sources are considered "clean" as per requirements
     private static final Set<String> CLEAN_FUELS = Set.of("biomass", "nuclear", "hydro", "wind", "solar");
+    private static final DateTimeFormatter API_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm'Z'");
 
     public EnergyService(CarbonIntensityClient carbonIntensityClient) {
         this.carbonIntensityClient = carbonIntensityClient;
     }
 
     /**
-     * Pobiera i oblicza uśredniony miks energetyczny dla 3 dni (dzisiaj, jutro, pojutrze).
+     * Fetches and calculates the averaged energy mix for 3 days (today, tomorrow, day after tomorrow).
      */
     public List<DailyEnergyMix> getDailyAverages() {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -38,13 +39,13 @@ public class EnergyService {
 
         GenerationResponse response = fetchGenerationData(today, dayAfterTomorrow);
 
-        // Grupujemy otrzymane 30-minutowe interwały według daty (LocalDate)
+        // Group 30-minute intervals by date (LocalDate)
         Map<LocalDate, List<IntervalData>> groupedByDate = response.data().stream()
                 .collect(Collectors.groupingBy(interval -> OffsetDateTime.parse(interval.from()).toLocalDate()));
 
         List<DailyEnergyMix> dailyMixes = new ArrayList<>();
 
-        // Dla każdego z 3 dni obliczamy uśrednione wartości
+        // Calculate averages for each of the 3 days
         for (LocalDate date : List.of(today, tomorrow, dayAfterTomorrow)) {
             List<IntervalData> intervals = groupedByDate.getOrDefault(date, Collections.emptyList());
 
@@ -53,7 +54,7 @@ public class EnergyService {
                 continue;
             }
 
-            // Sumujemy procenty dla każdego paliwa
+            // Sum up percentages for each fuel source
             Map<String, Double> fuelSums = new HashMap<>();
             for (IntervalData interval : intervals) {
                 for (FuelMix mix : interval.generationMix()) {
@@ -65,7 +66,7 @@ public class EnergyService {
             Map<String, Double> fuelAverages = new HashMap<>();
             double cleanEnergySum = 0.0;
 
-            // Wyliczamy średnie i zaokrąglamy je do 2 miejsc po przecinku
+            // Calculate averages and round to 2 decimal places
             for (Map.Entry<String, Double> entry : fuelSums.entrySet()) {
                 double avg = entry.getValue() / count;
                 double roundedAvg = Math.round(avg * 100.0) / 100.0;
@@ -84,15 +85,15 @@ public class EnergyService {
     }
 
     /**
-     * Implementacja algorytmu Sliding Window do znajdowania optymalnego okna ładowania.
-     * Szuka okna o podanej długości w najbliższych dwóch dniach (jutro i pojutrze).
+     * Sliding Window algorithm to find the optimal charging window.
+     * Looks for a window of a given duration in the next two days (tomorrow and day after tomorrow).
      */
     public OptimalChargingWindow findOptimalChargingWindow(int durationHours) {
         if (durationHours < 1 || durationHours > 6) {
-            throw new IllegalArgumentException("Czas ładowania musi wynosić od 1 do 6 godzin.");
+            throw new IllegalArgumentException("Charging duration must be between 1 and 6 hours.");
         }
 
-        // 1 godzina = 2 interwały (30-minutowe)
+        // 1 hour = 2 intervals (30-minute blocks)
         int requiredIntervalsCount = durationHours * 2;
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -100,10 +101,10 @@ public class EnergyService {
         LocalDate tomorrow = today.plusDays(1);
         LocalDate dayAfterTomorrow = today.plusDays(2);
 
-        // Pobieramy dane (potrzebujemy jutro + pojutrze)
+        // Fetch forecast data
         GenerationResponse response = fetchGenerationData(today, dayAfterTomorrow);
 
-        // Filtrujemy dane, zostawiając wyłącznie interwały z jutra i pojutrza, a następnie sortujemy je chronologicznie
+        // Filter intervals to only include tomorrow and the day after, sorted chronologically
         List<IntervalData> forecastIntervals = response.data().stream()
                 .filter(interval -> {
                     LocalDate date = OffsetDateTime.parse(interval.from()).toLocalDate();
@@ -113,13 +114,13 @@ public class EnergyService {
                 .collect(Collectors.toList());
 
         if (forecastIntervals.size() < requiredIntervalsCount) {
-            throw new IllegalStateException("Niewystarczająca ilość danych prognozowanych do obliczenia okna.");
+            throw new IllegalStateException("Insufficient forecast data to calculate charging window.");
         }
 
         double maxAverageCleanEnergy = -1.0;
         int bestStartIndex = 0;
 
-        // Algorytm Sliding Window: przesuwamy okno o stałej szerokości co 1 interwał (30 min)
+        // Sliding Window algorithm: shift the window of fixed size by 1 interval (30 min) at a time
         for (int i = 0; i <= forecastIntervals.size() - requiredIntervalsCount; i++) {
             double currentSum = 0.0;
 
@@ -135,7 +136,7 @@ public class EnergyService {
             }
         }
 
-        // Wyciągamy interwał startowy i końcowy na podstawie najlepszego indeksu
+        // Retrieve start and end intervals based on the best index
         IntervalData startInterval = forecastIntervals.get(bestStartIndex);
         IntervalData endInterval = forecastIntervals.get(bestStartIndex + requiredIntervalsCount - 1);
 
@@ -149,23 +150,23 @@ public class EnergyService {
     }
 
     /**
-     * Pomocnicza metoda pobierająca dane dla zadanego zakresu dat.
+     * Helper method to fetch generation mix data for a given date range.
      */
     private GenerationResponse fetchGenerationData(LocalDate fromDate, LocalDate toDate) {
-        String fromStr = fromDate.atStartOfDay(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT);
-        // Do daty końcowej dodajemy 23:59:59, aby objąć cały ostatni dzień
-        String toStr = toDate.atTime(23, 59, 59).atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT);
+        // Formatujemy daty stricte według formatu API_DATE_FORMATTER (bez sekund!)
+        String fromStr = fromDate.atStartOfDay(ZoneOffset.UTC).format(API_DATE_FORMATTER);
+        String toStr = toDate.atTime(23, 59).atOffset(ZoneOffset.UTC).format(API_DATE_FORMATTER);
 
         GenerationResponse response = carbonIntensityClient.getGenerationMix(fromStr, toStr);
 
         if (response == null || response.data() == null) {
-            throw new IllegalStateException("Nie udało się pobrać danych z zewnętrznego API.");
+            throw new IllegalStateException("Failed to fetch data from the external API.");
         }
         return response;
     }
 
     /**
-     * Pomocnicza metoda sumująca udział czystej energii w jednym 30-minutowym interwale.
+     * Helper method to calculate the clean energy percentage in a single 30-minute interval.
      */
     private double calculateCleanEnergyPercentage(IntervalData interval) {
         return interval.generationMix().stream()

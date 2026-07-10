@@ -5,26 +5,31 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.net.URI;
+
 @Component
 public class CarbonIntensityClient {
 
     private final RestClient restClient;
+    private static final String BASE_URL = "https://api.carbonintensity.org.uk";
 
     public CarbonIntensityClient() {
-        // Konfigurujemy bazowy adres API oraz nagłówek Accept, ponieważ brytyjskie API tego wymaga
         this.restClient = RestClient.builder()
-                .baseUrl("https://api.carbonintensity.org.uk")
+                .baseUrl(BASE_URL)
                 .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
                 .build();
     }
 
     /**
      * Pobiera miks energetyczny dla określonego przedziału czasowego.
-     * Daty 'from' oraz 'to' muszą być w formacie ISO 8601 UTC (np. 2026-07-08T00:00Z)
+     * Używamy java.net.URI, aby zapobiec zamianie dwukropków na '%3A' przez Springa.
      */
     public GenerationResponse getGenerationMix(String from, String to) {
+        // Ręcznie budujemy URI, co całkowicie wyłącza automatyczne kodowanie w RestClient
+        URI uri = URI.create(BASE_URL + "/generation/" + from + "/" + to);
+
         return this.restClient.get()
-                .uri("/generation/{from}/{to}", from, to)
+                .uri(uri)
                 .retrieve()
                 .body(GenerationResponse.class);
     }

@@ -38,7 +38,7 @@ class EnergyServiceTest {
 
     @BeforeEach
     void setUp() {
-        // Wyznaczamy daty dynamicznie względem uruchomienia testu
+        // Construct dates dynamically relative to current execution time
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         today = now.toLocalDate();
         tomorrow = today.plusDays(1);
@@ -47,26 +47,26 @@ class EnergyServiceTest {
 
     @Test
     void getDailyAverages_ShouldCalculateCorrectlyAndRoundToTwoDecimals() {
-        // Given - Przygotowujemy dane testowe dla "dzisiaj" z różnymi udziałami energii
+        // Given - Mocking daily interval data with specific energy generation mixes
         OffsetDateTime t1 = today.atTime(12, 0).atOffset(ZoneOffset.UTC);
         OffsetDateTime t2 = today.atTime(12, 30).atOffset(ZoneOffset.UTC);
 
-        // Interwał 1: Wiatr = 40.0%, Gaz = 60.0% (Czysta energia = 40%)
+        // Interval 1: Wind = 40.0%, Gas = 60.0% (Clean energy = 40.0%)
         IntervalData interval1 = createMockInterval(t1, t1.plusMinutes(30), 40.0, 60.0);
-        // Interwał 2: Wiatr = 50.5%, Gaz = 49.5% (Czysta energia = 50.5%)
+        // Interval 2: Wind = 50.5%, Gas = 49.5% (Clean energy = 50.5%)
         IntervalData interval2 = createMockInterval(t2, t2.plusMinutes(30), 50.5, 49.5);
 
         GenerationResponse response = new GenerationResponse(List.of(interval1, interval2));
         when(carbonIntensityClient.getGenerationMix(anyString(), anyString())).thenReturn(response);
 
-        // When - Uruchamiamy testowaną metodę
+        // When
         List<DailyEnergyMix> result = energyService.getDailyAverages();
 
-        // Then - Weryfikujemy poprawność obliczeń
+        // Then
         assertNotNull(result);
-        assertEquals(3, result.size()); // dzisiaj, jutro, pojutrze
+        assertEquals(3, result.size()); // Today, Tomorrow, Day After Tomorrow
 
-        // Średnia dla dzisiaj: Wiatr = (40 + 50.5)/2 = 45.25%, Gaz = (60 + 49.5)/2 = 54.75%
+        // Expected Today's averages: Wind = (40 + 50.5)/2 = 45.25%, Gas = (60 + 49.5)/2 = 54.75%
         DailyEnergyMix todayMix = result.stream()
                 .filter(mix -> mix.date().equals(today))
                 .findFirst()
@@ -75,12 +75,12 @@ class EnergyServiceTest {
         Map<String, Double> averages = todayMix.fuelAverages();
         assertEquals(45.25, averages.get("wind"));
         assertEquals(54.75, averages.get("gas"));
-        assertEquals(45.25, todayMix.cleanEnergyPercentage()); // tylko wiatr był czysty w tej próbce
+        assertEquals(45.25, todayMix.cleanEnergyPercentage()); // Wind is the only clean fuel mocked
     }
 
     @Test
     void findOptimalChargingWindow_ShouldFindCleanestWindow() {
-        // Given - Szukamy okna 2-godzinnego (4 interwały) w danych dla jutra
+        // Given - Search for a 2-hour window (4 intervals) in tomorrow's forecast
         OffsetDateTime t1 = tomorrow.atTime(12, 0).atOffset(ZoneOffset.UTC);
         OffsetDateTime t2 = tomorrow.atTime(12, 30).atOffset(ZoneOffset.UTC);
         OffsetDateTime t3 = tomorrow.atTime(13, 0).atOffset(ZoneOffset.UTC);
@@ -88,36 +88,35 @@ class EnergyServiceTest {
         OffsetDateTime t5 = tomorrow.atTime(14, 0).atOffset(ZoneOffset.UTC);
         OffsetDateTime t6 = tomorrow.atTime(14, 30).atOffset(ZoneOffset.UTC);
 
-        // Tworzymy ciąg interwałów, gdzie najczystsze 2h (4 interwały) zaczynają się od t2 (12:30) do t6 (14:30)
-        IntervalData i1 = createMockInterval(t1, t1.plusMinutes(30), 10.0, 90.0); // 12:00 -> 10% czystej
-        IntervalData i2 = createMockInterval(t2, t2.plusMinutes(30), 80.0, 20.0); // 12:30 -> 80% czystej [START OKNA]
-        IntervalData i3 = createMockInterval(t3, t3.plusMinutes(30), 90.0, 10.0); // 13:00 -> 90% czystej
-        IntervalData i4 = createMockInterval(t4, t4.plusMinutes(30), 85.0, 15.0); // 13:30 -> 85% czystej
-        IntervalData i5 = createMockInterval(t5, t5.plusMinutes(30), 75.0, 25.0); // 14:00 -> 75% czystej [KONIEC OKNA]
-        IntervalData i6 = createMockInterval(t6, t6.plusMinutes(30), 10.0, 90.0); // 14:30 -> 10% czystej
+        // Best 2h window starts at t2 (12:30) and ends at t5's interval end (14:30)
+        IntervalData i1 = createMockInterval(t1, t1.plusMinutes(30), 10.0, 90.0); // 10% Clean
+        IntervalData i2 = createMockInterval(t2, t2.plusMinutes(30), 80.0, 20.0); // 80% Clean [WINDOW START]
+        IntervalData i3 = createMockInterval(t3, t3.plusMinutes(30), 90.0, 10.0); // 90% Clean
+        IntervalData i4 = createMockInterval(t4, t4.plusMinutes(30), 85.0, 15.0); // 85% Clean
+        IntervalData i5 = createMockInterval(t5, t5.plusMinutes(30), 75.0, 25.0); // 75% Clean [WINDOW END]
+        IntervalData i6 = createMockInterval(t6, t6.plusMinutes(30), 10.0, 90.0); // 10% Clean
 
         GenerationResponse response = new GenerationResponse(List.of(i1, i2, i3, i4, i5, i6));
         when(carbonIntensityClient.getGenerationMix(anyString(), anyString())).thenReturn(response);
 
-        // When - Szukamy okna o długości 2 godzin
+        // When - Requesting a 2-hour optimal charging window
         OptimalChargingWindow optimalWindow = energyService.findOptimalChargingWindow(2);
 
-        // Then - Średnia z najlepszego okna: (80 + 90 + 85 + 75) / 4 = 82.5%
+        // Then - Expected average clean energy: (80 + 90 + 85 + 75) / 4 = 82.5%
         assertNotNull(optimalWindow);
         assertEquals(t2, optimalWindow.start());
-        assertEquals(t5.plusMinutes(30), optimalWindow.end()); // koniec ostatniego interwału (14:30)
+        assertEquals(t5.plusMinutes(30), optimalWindow.end());
         assertEquals(82.5, optimalWindow.averageCleanEnergyPercentage());
     }
 
     @Test
     void findOptimalChargingWindow_ShouldCorrectlyCrossMidnight() {
-        // Given - Testujemy najtrudniejszy przypadek: okno przechodzące przez północ (jutro -> pojutrze)
+        // Given - Testing edgecase: best window crosses the midnight boundary (tomorrow -> dayAfterTomorrow)
         OffsetDateTime t1 = tomorrow.atTime(23, 0).atOffset(ZoneOffset.UTC);
         OffsetDateTime t2 = tomorrow.atTime(23, 30).atOffset(ZoneOffset.UTC);
         OffsetDateTime t3 = dayAfterTomorrow.atTime(0, 0).atOffset(ZoneOffset.UTC);
         OffsetDateTime t4 = dayAfterTomorrow.atTime(0, 30).atOffset(ZoneOffset.UTC);
 
-        // Wszystkie 4 interwały dają średnio 85% czystej energii i przechodzą przez granicę dni
         IntervalData i1 = createMockInterval(t1, t1.plusMinutes(30), 80.0, 20.0);
         IntervalData i2 = createMockInterval(t2, t2.plusMinutes(30), 90.0, 10.0);
         IntervalData i3 = createMockInterval(t3, t3.plusMinutes(30), 85.0, 15.0);
@@ -126,7 +125,7 @@ class EnergyServiceTest {
         GenerationResponse response = new GenerationResponse(List.of(i1, i2, i3, i4));
         when(carbonIntensityClient.getGenerationMix(anyString(), anyString())).thenReturn(response);
 
-        // When - Szukamy okna o długości 2 godzin
+        // When
         OptimalChargingWindow optimalWindow = energyService.findOptimalChargingWindow(2);
 
         // Then
@@ -138,14 +137,14 @@ class EnergyServiceTest {
 
     @Test
     void findOptimalChargingWindow_ShouldThrowException_WhenDurationIsInvalid() {
-        // When & Then - Walidacja wejścia (< 1h oraz > 6h)
+        // When & Then - Validate input durations (<1h or >6h)
         assertThrows(IllegalArgumentException.class, () -> energyService.findOptimalChargingWindow(0));
         assertThrows(IllegalArgumentException.class, () -> energyService.findOptimalChargingWindow(7));
     }
 
     @Test
     void findOptimalChargingWindow_ShouldThrowException_WhenNotEnoughData() {
-        // Given - Zwracamy tylko 2 interwały z API, a żądamy 2 godzin (wymagane 4 interwały)
+        // Given - Mocking only 2 intervals while the request requires 4 intervals (2 hours)
         OffsetDateTime t1 = tomorrow.atTime(12, 0).atOffset(ZoneOffset.UTC);
         OffsetDateTime t2 = tomorrow.atTime(12, 30).atOffset(ZoneOffset.UTC);
 
@@ -155,11 +154,10 @@ class EnergyServiceTest {
         GenerationResponse response = new GenerationResponse(List.of(i1, i2));
         when(carbonIntensityClient.getGenerationMix(anyString(), anyString())).thenReturn(response);
 
-        // When & Then - Sprawdzamy czy rzuci błędem o braku danych
+        // When & Then - Expect exception due to insufficient forecast data
         assertThrows(IllegalStateException.class, () -> energyService.findOptimalChargingWindow(2));
     }
 
-    // Pomocnicza metoda tworząca uproszczony interwał testowy
     private IntervalData createMockInterval(OffsetDateTime from, OffsetDateTime to, double windPerc, double gasPerc) {
         return new IntervalData(
                 from.toString(),
