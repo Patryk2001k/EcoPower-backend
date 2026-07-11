@@ -15,11 +15,8 @@ This repository contains the backend service for the **EcoPower** application, b
 ## ⚙️ Running Locally
 Ensure you are inside the `/frontend` directory:
 ```bash
-# Install dependencies
-npm install
+# Build the backend image
+docker build -t ecopower-backend .
 
-# Run development server (access at http://localhost:5173)
-npm run dev
-
-# Run unit tests in watch mode
-npm run test
+# Run the backend container
+docker run -p 8080:8080 ecopower-backend
